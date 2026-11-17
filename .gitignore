@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+.venv/
+.idea/
+__pycache__/
+*.py[cod]
+*.log
+logs/
+sync-source/
+.DS_Store
+.ruff_cache/
