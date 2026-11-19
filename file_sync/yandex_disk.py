@@ -45,9 +45,15 @@ def response_object(response):
     return value
 
 
-def response_link(response):
+def response_link(response, method):
     """Извлекает безопасную HTTPS-ссылку из ответа API"""
-    href = response_object(response).get("href")
+    link = response_object(response)
+    if (
+        link.get("templated", False) is not False
+        or link.get("method", method) != method
+    ):
+        raise CloudError("Яндекс Диск вернул неподдерживаемую ссылку")
+    href = link.get("href")
     if not isinstance(href, str):
         raise CloudError("Яндекс Диск не вернул ссылку на операцию")
     try:
@@ -187,7 +193,7 @@ class YandexDisk:
                 )
             uploaded = self._request(
                 "PUT",
-                response_link(response),
+                response_link(response, "PUT"),
                 data=file if before.st_size else b"",
                 headers={"Content-Type": "application/octet-stream"},
             )
@@ -246,7 +252,7 @@ class YandexDisk:
         if response.status_code in (204, 404):
             return
         if response.status_code == 202:
-            self._wait_for_delete(response_link(response))
+            self._wait_for_delete(response_link(response, "GET"))
             return
         raise CloudError(f"Удаление не выполнено, HTTP {response.status_code}")
 
