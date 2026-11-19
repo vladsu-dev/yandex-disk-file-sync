@@ -193,3 +193,18 @@ class YandexDiskTests(unittest.TestCase):
     @staticmethod
     def page(items, total):
         return {"type": "dir", "_embedded": {"total": total, "items": items}}
+
+    def test_upload_does_not_send_bytes_to_unexpanded_url_template(self):
+        link = {
+            "href": "https://upload.example.test/{target}",
+            "method": "PUT",
+            "templated": True,
+        }
+        storage, adapter = self.make_client((200, link), (201, None))
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "work.txt")
+            with open(path, "wb") as file:
+                file.write(b"data")
+            with self.assertRaises(CloudError):
+                storage.load(path)
+        self.assertEqual(len(adapter.calls), 1)
