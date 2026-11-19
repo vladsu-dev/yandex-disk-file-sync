@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass, field
 from math import isfinite
 from pathlib import Path
+from threading import TIMEOUT_MAX
 
 from dotenv import dotenv_values
 
@@ -48,6 +49,8 @@ def parse_interval(value):
         raise ConfigError(
             "SYNC_INTERVAL должен быть конечным положительным числом секунд"
         )
+    if interval >= TIMEOUT_MAX:
+        raise ConfigError("Уменьшите значение SYNC_INTERVAL")
     return interval
 
 
@@ -63,6 +66,62 @@ def normalize_remote_dir(value):
             "REMOTE_DIR должен указывать на папку, например disk:/Backup"
         )
     return f"disk:/{path}"
+
+
+def file_status(path):
+    """Возвращает сведения о файле, если путь существует"""
+    try:
+        return os.stat(path)
+    except FileNotFoundError:
+        return None
+
+
+def is_inside(path, directory, directory_status):
+    """Проверяет принадлежность к папке по пути и по файловой системе"""
+    ancestors = Path(path).parents
+    if directory in ancestors:
+        return True
+    return any(
+        status is not None and os.path.samestat(status, directory_status)
+        for status in map(file_status, ancestors)
+    )
+
+
+def aliases_source_file(directory, status):
+    """Ищет жёсткую ссылку на конфиг или журнал в локальной папке"""
+    if status is None or status.st_nlink < 2:
+        return False
+    with os.scandir(directory) as entries:
+        return any(
+            os.path.samestat(entry.stat(follow_symlinks=False), status)
+            for entry in entries
+        )
+
+
+def validate_paths(local_dir, log_file, config_path):
+    """Не допускает попадания настроек и собственного журнала в зеркало"""
+    try:
+        directory = os.stat(local_dir)
+        config = os.stat(config_path)
+        log = file_status(log_file)
+        if (
+            is_inside(log_file, Path(local_dir), directory)
+            or (log is not None and os.path.samestat(log, config))
+            or aliases_source_file(local_dir, log)
+        ):
+            raise ConfigError(
+                "Укажите LOG_FILE вне LOCAL_DIR и отдельно от .env"
+            )
+        if is_inside(
+            config_path, Path(local_dir), directory
+        ) or aliases_source_file(local_dir, config):
+            raise ConfigError(
+                "LOCAL_DIR должна находиться отдельно от файла .env"
+            )
+    except OSError:
+        raise ConfigError(
+            "Не удалось проверить LOCAL_DIR, LOG_FILE и .env"
+        ) from None
 
 
 def read_settings(env_file=".env"):
@@ -84,12 +143,7 @@ def read_settings(env_file=".env"):
         )
 
     log_file = absolute_path(required(values, "LOG_FILE"), base)
-    if Path(log_file).is_relative_to(local_dir) or log_file == config_path:
-        raise ConfigError("Укажите LOG_FILE вне LOCAL_DIR и отдельно от .env")
-    if Path(config_path).is_relative_to(local_dir):
-        raise ConfigError(
-            "Выберите LOCAL_DIR вне папки, содержащей настройки .env"
-        )
+    validate_paths(local_dir, log_file, config_path)
 
     token = required(values, "YANDEX_DISK_TOKEN")
     if (
