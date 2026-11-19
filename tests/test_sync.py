@@ -148,3 +148,25 @@ class SyncTests(unittest.TestCase):
             self.assertTrue(synchronize(self.folder, self.cloud, self.logger))
         self.cloud.load.assert_called_once_with(local)
         self.cloud.delete.assert_called_once_with("report.txt")
+
+    def test_replaced_source_folder_is_rejected_before_upload(self):
+        self.write("file.txt", b"original")
+        renamed = self.folder + "-original"
+        os.mkdir(renamed)
+        self.addCleanup(os.rmdir, renamed)
+
+        def replace_directory():
+            os.rename(self.folder, os.path.join(renamed, "source"))
+            self.addCleanup(os.rmdir, self.folder)
+            moved = os.path.join(renamed, "source")
+            self.addCleanup(os.rmdir, moved)
+            self.addCleanup(os.unlink, os.path.join(moved, "file.txt"))
+            os.mkdir(self.folder)
+            path = self.write("file.txt", b"from another folder")
+            self.addCleanup(os.unlink, path)
+            return {}
+
+        self.cloud.get_info.side_effect = replace_directory
+        self.assertFalse(synchronize(self.folder, self.cloud, self.logger))
+        self.cloud.load.assert_not_called()
+        self.cloud.delete.assert_not_called()
