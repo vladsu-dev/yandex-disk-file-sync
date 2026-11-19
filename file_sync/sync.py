@@ -33,22 +33,28 @@ def is_missing(directory, filename):
     return filename not in list_names(directory)
 
 
+def verify_directory(directory, original):
+    """Проверяет, что путь всё ещё ведёт к исходной папке"""
+    if not os.path.samestat(original, os.stat(directory)):
+        raise OSError("Локальная папка была заменена во время сверки")
+
+
 def delete_missing(directory, original, filename, storage, logger):
     """Удаляет облачную копию после повторной локальной проверки"""
     if not is_missing(directory, filename):
         return
     # Исчезновение всей папки нельзя считать удалением всех файлов
-    if not os.path.samestat(original, os.stat(directory)):
-        raise OSError("Локальная папка была заменена во время сверки")
+    verify_directory(directory, original)
     storage.delete(filename)
     logger.info("Удалён из облачной папки файл {!r}", filename)
 
 
-def sync_local_files(directory, names, remote, storage, logger):
+def sync_local_files(directory, original, names, remote, storage, logger):
     """Обрабатывает локальные файлы независимо друг от друга"""
     success = True
     for name in sorted(names):
         try:
+            verify_directory(directory, original)
             sync_file(
                 os.path.join(directory, name),
                 remote.get(name),
@@ -79,11 +85,14 @@ def synchronize(directory, storage, logger):
         original = os.stat(directory)
         local_names = list_names(directory)
         remote = storage.get_info()
+        verify_directory(directory, original)
     except (OSError, CloudError) as error:
         logger.error("Цикл пропущен: {}", error)
         return False
 
-    written = sync_local_files(directory, local_names, remote, storage, logger)
+    written = sync_local_files(
+        directory, original, local_names, remote, storage, logger
+    )
     if not written:
         # Сохраняем старую копию при сбое загрузки нового имени
         logger.error("Удаления отложены до успешной сверки локальных файлов")
