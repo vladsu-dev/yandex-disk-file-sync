@@ -95,3 +95,19 @@ class SettingsTests(unittest.TestCase):
         self.assertIn(settings.local_dir, log)
         self.assertIn("YANDEX_DISK_TOKEN", log)
         self.assertNotIn(settings.token, log)
+
+    def test_rejects_interval_that_cannot_be_used_by_sleep(self):
+        with self.assertRaisesRegex(ConfigError, "SYNC_INTERVAL"):
+            self.settings(SYNC_INTERVAL="1e30")
+
+    def test_rejects_dotenv_hard_link_in_source(self):
+        self.settings()
+        os.link(self.env, os.path.join(self.base, "files", "settings-copy"))
+        with self.assertRaisesRegex(ConfigError, "LOCAL_DIR"):
+            self.settings()
+
+    def test_rejects_log_hard_link_to_dotenv(self):
+        self.settings()
+        os.link(self.env, os.path.join(self.base, "sync.log"))
+        with self.assertRaisesRegex(ConfigError, "LOG_FILE"):
+            self.settings(LOG_FILE="sync.log")
